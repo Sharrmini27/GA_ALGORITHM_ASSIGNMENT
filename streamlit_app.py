@@ -3,18 +3,21 @@ import pandas as pd
 import random
 import csv
 import numpy as np
+import io
 
 # ============================================================
 #   PART A: GENETIC ALGORITHM ENGINE
 # ============================================================
 
-def read_csv_to_dict(file_path):
-    """Reads the CSV file and returns a dictionary of ratings."""
+def read_csv_to_dict(uploaded_file):
+    """Reads uploaded CSV and returns a dictionary of program ratings."""
     program_ratings = {}
     try:
-        with open(file_path, mode='r', newline='') as file:
-            reader = csv.reader(file)
-            header = next(reader)  # Skip header row
+        if uploaded_file is not None:
+            # Read directly from uploaded file
+            decoded = uploaded_file.getvalue().decode('utf-8')
+            reader = csv.reader(io.StringIO(decoded))
+            header = next(reader)  # Skip header
             for row in reader:
                 if len(row) > 1:
                     program = row[0]
@@ -23,19 +26,14 @@ def read_csv_to_dict(file_path):
                         program_ratings[program] = ratings
                     except ValueError:
                         st.warning(f"Skipping row for '{program}': contains non-numeric rating.")
-    except FileNotFoundError:
-        st.error(f"Error: The file '{file_path}' was not found.")
-        st.info("Using fallback sample data for testing.")
-        program_ratings = {
-            'News': [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.5, 0.4],
-            'Sports': [0.4, 0.5, 0.6, 0.7, 0.8, 0.6, 0.4, 0.3],
-            'Movies': [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.6, 0.5],
-        }
+        else:
+            st.warning("No CSV file uploaded.")
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
     return program_ratings
 
 
 def fitness_function(schedule, ratings_data, schedule_length):
-    """Calculates the total fitness of a given schedule."""
     total_rating = 0
     for time_slot, program in enumerate(schedule):
         if program in ratings_data:
@@ -45,12 +43,10 @@ def fitness_function(schedule, ratings_data, schedule_length):
 
 
 def create_random_schedule(all_programs, schedule_length):
-    """Creates a single random schedule."""
     return [random.choice(all_programs) for _ in range(schedule_length)]
 
 
 def crossover(schedule1, schedule2, schedule_length):
-    """Performs single-point crossover."""
     if len(schedule1) < 2 or len(schedule2) < 2:
         return schedule1, schedule2
     crossover_point = random.randint(1, schedule_length - 1)
@@ -60,7 +56,6 @@ def crossover(schedule1, schedule2, schedule_length):
 
 
 def mutate(schedule, all_programs, schedule_length):
-    """Mutates a schedule by changing one random slot."""
     schedule_copy = schedule.copy()
     mutation_point = random.randint(0, schedule_length - 1)
     new_program = random.choice(all_programs)
@@ -71,7 +66,6 @@ def mutate(schedule, all_programs, schedule_length):
 def genetic_algorithm(ratings_data, all_programs, schedule_length,
                       generations=100, population_size=50,
                       crossover_rate=0.8, mutation_rate=0.2, elitism_size=2):
-    """Runs the genetic algorithm optimization."""
     
     population = [create_random_schedule(all_programs, schedule_length) for _ in range(population_size)]
     best_schedule_ever = []
@@ -88,13 +82,8 @@ def genetic_algorithm(ratings_data, all_programs, schedule_length,
                 best_schedule_ever = schedule
 
         pop_with_fitness.sort(key=lambda x: x[1], reverse=True)
-        new_population = []
+        new_population = [p[0] for p in pop_with_fitness[:elitism_size]]
 
-        # Elitism
-        for i in range(elitism_size):
-            new_population.append(pop_with_fitness[i][0])
-
-        # Fill rest of population
         while len(new_population) < population_size:
             parent1 = random.choice(pop_with_fitness[:population_size // 2])[0]
             parent2 = random.choice(pop_with_fitness[:population_size // 2])[0]
@@ -122,29 +111,27 @@ def genetic_algorithm(ratings_data, all_programs, schedule_length,
 #   PART B: STREAMLIT APPLICATION
 # ============================================================
 
-st.title("📺 Genetic Algorithm - TV Program Scheduling Optimizer")
+st.title("📺 Scheduling Optimizer using Genetic Algorithm")
 
-# Load dataset
-file_path = 'program_ratings_updated.csv'
-ratings = read_csv_to_dict(file_path)
+st.write("Upload your **program_ratings_updated.csv** file below to run the optimizer:")
 
-# Display dataset
-st.subheader("📊 Program Ratings Dataset")
-try:
-    df_display = pd.read_csv(file_path)
-    st.dataframe(df_display)
-except FileNotFoundError:
-    st.error(f"Could not find {file_path} to display.")
+uploaded_file = st.file_uploader("📂 Upload CSV File", type=["csv"])
+
+ratings = read_csv_to_dict(uploaded_file)
 
 if ratings:
+    st.success(f"Loaded {len(ratings)} programs for optimization.")
+    df_display = pd.DataFrame.from_dict(ratings, orient='index').reset_index()
+    df_display.columns = ["Program"] + [f"Hour {i}" for i in range(1, len(df_display.columns))]
+    st.subheader("📊 Uploaded Dataset Preview")
+    st.dataframe(df_display)
+
     all_programs = list(ratings.keys())
-    all_time_slots = list(range(6, 24))  # 6:00 - 23:00
+    all_time_slots = list(range(6, 24))  # 6 AM to 11 PM
     SCHEDULE_LENGTH = len(all_time_slots)
 
-    st.success(f"Loaded {len(all_programs)} programs for optimization.")
-    st.info(f"Schedule optimized for {SCHEDULE_LENGTH} hourly slots (6:00 AM - 11:00 PM).")
+    st.info(f"Schedule optimized for {SCHEDULE_LENGTH} hourly slots (6:00 AM – 11:00 PM).")
 
-    # === FIXED PARAMETERS FOR EACH TRIAL ===
     TRIALS = [
         {"name": "Trial 1", "crossover": 0.8, "mutation": 0.2, "seed": 10},
         {"name": "Trial 2", "crossover": 0.9, "mutation": 0.1, "seed": 20},
@@ -176,4 +163,4 @@ if ratings:
             st.markdown("---")
 
 else:
-    st.error("Could not load any program data. Please check the file path and CSV content.")
+    st.warning("Please upload a valid CSV file to continue.")
